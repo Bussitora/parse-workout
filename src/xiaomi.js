@@ -59,7 +59,7 @@ function parseLoginPayload(text) {
 }
 
 export function regionBaseUrl(region) {
-  const normalized = String(region || "ru").trim().toLowerCase();
+  const normalized = String(region || "de").trim().toLowerCase();
   if (normalized === "" || normalized === "cn") {
     return "https://hlth.io.mi.com";
   }
@@ -130,14 +130,14 @@ export class XiaomiFitnessClient {
   constructor({
     username,
     password,
-    region = "ru",
+    region = "de",
     timeZone = "UTC",
     deviceId,
     fetchImpl = fetch,
   } = {}) {
     this.username = username;
     this.password = password;
-    this.region = String(region || "ru").trim().toLowerCase() || "ru";
+    this.region = String(region || "de").trim().toLowerCase() || "de";
     this.timeZone = timeZone;
     this.deviceId = deviceId || (username ? deviceIdFromUsername(username) : createHash("sha1").update("parse-workout").digest("hex").slice(0, 16).toUpperCase());
     this.fetchImpl = fetchImpl;

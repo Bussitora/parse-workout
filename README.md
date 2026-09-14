@@ -15,7 +15,7 @@ npm test
 node src/cli.js --out ./out
 ```
 
-Регион по умолчанию `ru`. При необходимости задайте `XIAOMI_REGION` (`cn`, `de`, `sg`, `us`, `i2`).
+Регион по умолчанию `de` (Германия). При необходимости задайте `XIAOMI_REGION` (`ru`, `cn`, `sg`, `us`, `i2`).
 
 Если Xiaomi потребует captcha или SMS, автоматический вход не завершится — это ограничение облака, не парсера.
 
@@ -28,8 +28,8 @@ node src/cli.js --out ./out
 | `XIAOMI_USERNAME` | email или телефон аккаунта Xiaomi |
 | `XIAOMI_PASSWORD` | пароль Xiaomi |
 | `WORKOUT_TOKEN` | fine-grained PAT с Contents: Read and write на репозиторий `workout` |
-| `XIAOMI_REGION` | необязательно |
-| `XIAOMI_TIMEZONE` | необязательно, по умолчанию `Europe/Moscow` |
+| `XIAOMI_REGION` | необязательно, по умолчанию `de` |
+| `XIAOMI_TIMEZONE` | необязательно, по умолчанию `Europe/Berlin` |
 | `WORKOUT_REPO` | необязательно, по умолчанию `<github-user>/workout` |
 
 Пароль нельзя коммитить в git.
