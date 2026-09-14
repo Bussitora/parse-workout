@@ -20,17 +20,15 @@ node src/cli.js --out ./out
 
 ## GitHub Actions
 
-Workflow `.github/workflows/sync.yml` каждый день забирает тренировки и пушит их в репозиторий `workout`.
-
-Секреты репозитория `parse-workout` (Settings → Secrets and variables → Actions):
+Основной workflow живёт в репозитории `workout`: каждый день он клонирует этот парсер, забирает тренировки и коммитит JSON обратно в `workout`. Секреты кладите туда же (Settings → Secrets and variables → Actions), чтобы они не попали в публичный код.
 
 | Secret | Зачем |
 | --- | --- |
 | `XIAOMI_USER_ID` | cookie `userId` |
 | `XIAOMI_PASS_TOKEN` | cookie `passToken` |
-| `WORKOUT_TOKEN` | fine-grained PAT с правом Contents: Read and write на репозиторий `workout` |
 | `XIAOMI_REGION` | необязательно, по умолчанию `ru` |
 | `XIAOMI_TIMEZONE` | необязательно, по умолчанию `Europe/Moscow` |
-| `WORKOUT_REPO` | необязательно, по умолчанию `<github-user>/workout` |
 
-`passToken` и PAT нельзя коммитить в git: они живут только в GitHub Secrets.
+В этом репозитории тоже есть `.github/workflows/sync.yml`, если нужно пушить в `workout` отсюда. Для этого дополнительно нужен `WORKOUT_TOKEN` (fine-grained PAT с Contents: Read and write на `workout`).
+
+`passToken` нельзя коммитить в git: только GitHub Secrets.
