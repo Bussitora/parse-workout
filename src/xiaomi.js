@@ -24,8 +24,32 @@ export class AuthenticationError extends XiaomiError {}
 export class ProtocolError extends XiaomiError {}
 export class RegionError extends XiaomiError {}
 
-function cookieHeader(jar) {
-  return [...jar.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+function cookieHeader(jar, names = [...jar.keys()]) {
+  return names
+    .filter((name) => jar.has(name))
+    .map((name) => `${name}=${jar.get(name)}`)
+    .join("; ");
+}
+
+export function stsUrlWithClientSign(location, nonce, ssecurity) {
+  const encodedSign = encodeURIComponent(clientSign(nonce, ssecurity)).replaceAll("%2F", "/");
+  const separator = String(location).includes("?") ? "&" : "?";
+  return `${location}${separator}clientSign=${encodedSign}`;
+}
+
+function captureServiceToken(jar, response, currentUrl) {
+  const location = response.headers.get("location");
+  if (!location) {
+    return;
+  }
+  try {
+    const token = new URL(location, currentUrl).searchParams.get("serviceToken");
+    if (token) {
+      jar.set("serviceToken", token);
+    }
+  } catch {
+    // Xiaomi sometimes returns a non-URL Location; cookies are enough in that case.
+  }
 }
 
 function storeCookies(jar, response) {
@@ -130,6 +154,8 @@ export class XiaomiFitnessClient {
   constructor({
     username,
     password,
+    userId,
+    passToken,
     region = "de",
     timeZone = "UTC",
     deviceId,
@@ -137,13 +163,23 @@ export class XiaomiFitnessClient {
   } = {}) {
     this.username = username;
     this.password = password;
+    this.savedUserId = userId ? String(userId) : "";
+    this.passToken = passToken || "";
     this.region = String(region || "de").trim().toLowerCase() || "de";
     this.timeZone = timeZone;
-    this.deviceId = deviceId || (username ? deviceIdFromUsername(username) : createHash("sha1").update("parse-workout").digest("hex").slice(0, 16).toUpperCase());
+    this.deviceId =
+      deviceId ||
+      (username
+        ? deviceIdFromUsername(username)
+        : createHash("sha1")
+            .update(this.savedUserId || "parse-workout")
+            .digest("hex")
+            .slice(0, 16)
+            .toUpperCase());
     this.fetchImpl = fetchImpl;
     this.cookieJar = new Map();
     this.ssecurity = null;
-    this.userId = "";
+    this.userId = this.savedUserId;
   }
 
   cookieHeader() {
@@ -151,6 +187,14 @@ export class XiaomiFitnessClient {
   }
 
   async login() {
+    if (this.passToken && this.savedUserId) {
+      await this.loginWithPassToken();
+      return;
+    }
+    await this.loginWithPassword();
+  }
+
+  async loginWithPassword() {
     if (!this.username || !this.password) {
       throw new AuthenticationError("XIAOMI_USERNAME and XIAOMI_PASSWORD are required");
     }
@@ -203,28 +247,60 @@ export class XiaomiFitnessClient {
 
     const payload = parseLoginPayload(await authResponse.text());
     this.assertLoginPayload(payload);
+    await this.finishSession(payload);
+  }
 
+  async loginWithPassToken() {
+    this.cookieJar.set("deviceId", this.deviceId);
+    this.cookieJar.set("sdkVersion", "accountsdk-18.8.15");
+    this.cookieJar.set("userId", this.savedUserId);
+    this.cookieJar.set("passToken", this.passToken);
+
+    const response = await this.fetchImpl(LOGIN_URL, {
+      headers: {
+        Cookie: this.cookieHeader(),
+        "User-Agent": USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      redirect: "manual",
+    });
+    storeCookies(this.cookieJar, response);
+    if (!response.ok) {
+      throw new AuthenticationError(`Xiaomi passToken login failed: HTTP ${response.status}`);
+    }
+    const payload = parseLoginPayload(await response.text());
+    this.assertLoginPayload(payload);
+    await this.finishSession(payload);
+  }
+
+  async finishSession(payload) {
     const ssecurity = firstValue(payload.ssecurity);
     const nonce = firstValue(payload.nonce);
     const location = firstValue(payload.location);
-    if (!ssecurity || !nonce || !String(location).startsWith("https://")) {
-      throw new AuthenticationError("Xiaomi password login did not return a session");
+    if (!ssecurity || !String(location).startsWith("https://")) {
+      throw new AuthenticationError("Xiaomi login did not return a session");
     }
 
     this.ssecurity = Buffer.from(ssecurity, "base64");
-    this.userId = String(firstValue(payload.userId, this.username));
+    this.userId = String(firstValue(payload.userId, this.savedUserId, this.username));
     this.cookieJar.set("userId", this.userId);
-    const passToken = firstValue(payload.passToken, this.cookieJar.get("passToken"));
+    const passToken = firstValue(payload.passToken, this.cookieJar.get("passToken"), this.passToken);
     if (passToken) {
       this.cookieJar.set("passToken", passToken);
+      this.passToken = passToken;
     }
     const cUserId = firstValue(payload.cUserId, this.cookieJar.get("cUserId"));
     if (cUserId) {
       this.cookieJar.set("cUserId", cUserId);
     }
 
+    for (const name of [...this.cookieJar.keys()]) {
+      if (name.toLowerCase().includes("servicetoken")) {
+        this.cookieJar.delete(name);
+      }
+    }
     await this.followSts(location, nonce, ssecurity);
-    if (![...this.cookieJar.keys()].some((name) => name.toLowerCase().includes("servicetoken"))) {
+    if (![...this.cookieJar.keys()].some((name) => name.toLowerCase() === "servicetoken")) {
       throw new AuthenticationError("Xiaomi STS exchange did not return serviceToken");
     }
   }
@@ -248,26 +324,31 @@ export class XiaomiFitnessClient {
   }
 
   async followSts(location, nonce, ssecurity) {
-    const signed = clientSign(nonce, ssecurity);
-    let current = new URL(location);
-    current.searchParams.set("clientSign", signed);
-    current.searchParams.set("_userIdNeedEncrypt", "true");
+    await this.followStsUrl(String(location));
+    if (this.cookieJar.has("serviceToken")) {
+      return;
+    }
+    await this.followStsUrl(stsUrlWithClientSign(location, nonce, ssecurity));
+  }
 
+  async followStsUrl(startUrl) {
+    let current = startUrl;
     for (let hop = 0; hop < 6; hop += 1) {
-      const response = await this.fetchImpl(current.toString(), {
+      const response = await this.fetchImpl(current, {
         headers: {
-          Cookie: this.cookieHeader(),
+          Cookie: cookieHeader(this.cookieJar, ["userId", "cUserId", "passToken", "deviceId"]),
           "User-Agent": USER_AGENT,
         },
         redirect: "manual",
       });
       storeCookies(this.cookieJar, response);
+      captureServiceToken(this.cookieJar, response, current);
       if (response.status >= 300 && response.status < 400) {
         const next = response.headers.get("location");
         if (!next) {
           break;
         }
-        current = new URL(next, current);
+        current = new URL(next, current).toString();
         continue;
       }
       break;
@@ -283,12 +364,18 @@ export class XiaomiFitnessClient {
     const signingPath = options.signingPath ?? apiPath;
     const nonce = generateNonce();
     const { signedNonce, body } = serializeEncryptedForm("POST", signingPath, payload, this.ssecurity, nonce);
+    const serviceToken = this.cookieJar.get("serviceToken");
+    if (serviceToken) {
+      this.cookieJar.set("yetAnotherServiceToken", serviceToken);
+    }
     const response = await this.fetchImpl(`${regionBaseUrl(region)}${apiPath}`, {
       method: "POST",
       headers: {
-        Cookie: this.cookieHeader(),
+        Cookie: cookieHeader(this.cookieJar, ["userId", "cUserId", "serviceToken", "yetAnotherServiceToken", "deviceId"]),
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": USER_AGENT,
+        region_tag: region,
+        HandleParams: "true",
       },
       body,
     });

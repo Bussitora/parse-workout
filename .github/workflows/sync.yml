@@ -16,12 +16,16 @@ jobs:
         env:
           XIAOMI_USERNAME: ${{ secrets.XIAOMI_USERNAME }}
           XIAOMI_PASSWORD: ${{ secrets.XIAOMI_PASSWORD }}
+          XIAOMI_USER_ID: ${{ secrets.XIAOMI_USER_ID }}
+          XIAOMI_PASS_TOKEN: ${{ secrets.XIAOMI_PASS_TOKEN }}
           WORKOUT_TOKEN: ${{ secrets.WORKOUT_TOKEN }}
           WORKOUT_DEPLOY_KEY: ${{ secrets.WORKOUT_DEPLOY_KEY }}
         run: |
           missing=0
-          if [ -z "$XIAOMI_USERNAME" ]; then echo "Missing secret: XIAOMI_USERNAME"; missing=1; fi
-          if [ -z "$XIAOMI_PASSWORD" ]; then echo "Missing secret: XIAOMI_PASSWORD"; missing=1; fi
+          if [ -z "$XIAOMI_PASS_TOKEN" ] || [ -z "$XIAOMI_USER_ID" ]; then
+            if [ -z "$XIAOMI_USERNAME" ]; then echo "Missing secret: XIAOMI_USERNAME"; missing=1; fi
+            if [ -z "$XIAOMI_PASSWORD" ]; then echo "Missing secret: XIAOMI_PASSWORD"; missing=1; fi
+          fi
           if [ -z "$WORKOUT_TOKEN" ] && [ -z "$WORKOUT_DEPLOY_KEY" ]; then
             echo "Missing secret: WORKOUT_DEPLOY_KEY or WORKOUT_TOKEN"
             missing=1
@@ -41,6 +45,8 @@ jobs:
         env:
           XIAOMI_USERNAME: ${{ secrets.XIAOMI_USERNAME }}
           XIAOMI_PASSWORD: ${{ secrets.XIAOMI_PASSWORD }}
+          XIAOMI_USER_ID: ${{ secrets.XIAOMI_USER_ID }}
+          XIAOMI_PASS_TOKEN: ${{ secrets.XIAOMI_PASS_TOKEN }}
           XIAOMI_REGION: ${{ secrets.XIAOMI_REGION }}
           XIAOMI_TIMEZONE: ${{ secrets.XIAOMI_TIMEZONE }}
           XIAOMI_DEVICE_ID: ${{ secrets.XIAOMI_DEVICE_ID }}

@@ -59,6 +59,8 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
   const client = new XiaomiFitnessClient({
     username: envVars.XIAOMI_USERNAME,
     password: envVars.XIAOMI_PASSWORD,
+    userId: envVars.XIAOMI_USER_ID,
+    passToken: envVars.XIAOMI_PASS_TOKEN,
     region: preferredRegion,
     timeZone,
     deviceId: envVars.XIAOMI_DEVICE_ID,

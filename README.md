@@ -28,6 +28,8 @@ node src/cli.js --out ./out
 | `XIAOMI_USERNAME` | email или телефон аккаунта Xiaomi |
 | `XIAOMI_PASSWORD` | пароль Xiaomi |
 | `WORKOUT_TOKEN` | fine-grained PAT с Contents: Read and write на репозиторий `workout` |
+| `XIAOMI_USER_ID` | числовой userId, чтобы Actions входили без повторного SMS |
+| `XIAOMI_PASS_TOKEN` | сессия Xiaomi для GitHub Actions |
 | `XIAOMI_REGION` | необязательно, по умолчанию `de` |
 | `XIAOMI_TIMEZONE` | необязательно, по умолчанию `Asia/Yekaterinburg` |
 | `WORKOUT_REPO` | необязательно, по умолчанию `<github-user>/workout` |
