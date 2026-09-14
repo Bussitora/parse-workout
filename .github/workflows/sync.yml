@@ -17,11 +17,15 @@ jobs:
           XIAOMI_USERNAME: ${{ secrets.XIAOMI_USERNAME }}
           XIAOMI_PASSWORD: ${{ secrets.XIAOMI_PASSWORD }}
           WORKOUT_TOKEN: ${{ secrets.WORKOUT_TOKEN }}
+          WORKOUT_DEPLOY_KEY: ${{ secrets.WORKOUT_DEPLOY_KEY }}
         run: |
           missing=0
           if [ -z "$XIAOMI_USERNAME" ]; then echo "Missing secret: XIAOMI_USERNAME"; missing=1; fi
           if [ -z "$XIAOMI_PASSWORD" ]; then echo "Missing secret: XIAOMI_PASSWORD"; missing=1; fi
-          if [ -z "$WORKOUT_TOKEN" ]; then echo "Missing secret: WORKOUT_TOKEN"; missing=1; fi
+          if [ -z "$WORKOUT_TOKEN" ] && [ -z "$WORKOUT_DEPLOY_KEY" ]; then
+            echo "Missing secret: WORKOUT_DEPLOY_KEY or WORKOUT_TOKEN"
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then exit 1; fi
 
       - uses: actions/checkout@v4
@@ -45,13 +49,22 @@ jobs:
       - name: Publish GPX files to workout repository
         env:
           WORKOUT_TOKEN: ${{ secrets.WORKOUT_TOKEN }}
+          WORKOUT_DEPLOY_KEY: ${{ secrets.WORKOUT_DEPLOY_KEY }}
           WORKOUT_REPO: ${{ secrets.WORKOUT_REPO }}
         run: |
           set -euo pipefail
           repo="${WORKOUT_REPO:-${GITHUB_REPOSITORY_OWNER}/workout}"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git clone --depth 1 "https://x-access-token:${WORKOUT_TOKEN}@github.com/${repo}.git" workout-repo
+          if [ -n "${WORKOUT_DEPLOY_KEY:-}" ]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$WORKOUT_DEPLOY_KEY" > ~/.ssh/id_ed25519
+            chmod 600 ~/.ssh/id_ed25519
+            ssh-keyscan github.com >> ~/.ssh/known_hosts
+            git clone --depth 1 "git@github.com:${repo}.git" workout-repo
+          else
+            git clone --depth 1 "https://x-access-token:${WORKOUT_TOKEN}@github.com/${repo}.git" workout-repo
+          fi
           shopt -s nullglob
           copied=0
           for file in out/*.gpx; do
