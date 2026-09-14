@@ -1,4 +1,6 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+
+export const FDS_AES_IV = Buffer.from("1234567887654321");
 
 export function rc4Crypt(key, payload) {
   const state = Array.from({ length: 256 }, (_, index) => index);
@@ -67,4 +69,70 @@ export function serializeEncryptedForm(method, path, payload, ssecurity, nonce) 
 export function decryptResponse(signedNonce, ciphertext) {
   const plaintext = rc4Crypt(signedNonce, Buffer.from(ciphertext, "base64")).toString("utf8");
   return JSON.parse(plaintext);
+}
+
+export function md5Upper(value) {
+  return createHash("md5").update(String(value), "utf8").digest("hex").toUpperCase();
+}
+
+export function clientSign(nonce, ssecurity) {
+  return createHash("sha1").update(`nonce=${nonce}&${ssecurity}`, "utf8").digest("base64");
+}
+
+export function deviceIdFromUsername(username) {
+  return createHash("sha1").update(String(username), "utf8").digest("hex").slice(0, 16).toUpperCase();
+}
+
+export function b64urlDecode(value) {
+  const normalized = String(value).replaceAll("-", "+").replaceAll("_", "/");
+  return Buffer.from(normalized + "=".repeat((4 - (normalized.length % 4)) % 4), "base64");
+}
+
+function aesAlgorithm(keyLength) {
+  if (keyLength === 16) {
+    return "aes-128-cbc";
+  }
+  if (keyLength === 24) {
+    return "aes-192-cbc";
+  }
+  if (keyLength === 32) {
+    return "aes-256-cbc";
+  }
+  throw new Error(`Unsupported FDS AES key length: ${keyLength}`);
+}
+
+function fdsCiphertext(body) {
+  if (Buffer.isBuffer(body)) {
+    return body;
+  }
+  if (typeof body !== "string") {
+    return b64urlDecode(JSON.stringify(body));
+  }
+  const trimmed = body.trim();
+  if (trimmed.startsWith('"')) {
+    return b64urlDecode(JSON.parse(trimmed));
+  }
+  return b64urlDecode(trimmed);
+}
+
+export function encryptFdsData(plaintext, objectKey) {
+  const key = b64urlDecode(objectKey);
+  const cipher = createCipheriv(aesAlgorithm(key.length), key, FDS_AES_IV);
+  return Buffer.concat([cipher.update(plaintext), cipher.final()]).toString("base64url");
+}
+
+export function decryptFdsData(body, objectKey) {
+  const key = b64urlDecode(objectKey);
+  const decipher = createDecipheriv(aesAlgorithm(key.length), key, FDS_AES_IV);
+  const ciphertext = fdsCiphertext(body);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+export function buildFdsSuffix({ sid, timestamp, timezoneOffset, sportType, fileType }) {
+  const serverKey = Buffer.alloc(6);
+  serverKey.writeUInt32LE(Number(timestamp) >>> 0, 0);
+  serverKey[4] = Number(timezoneOffset) & 0xff;
+  serverKey[5] = ((1 << 7) + (Number(sportType) << 2) + Number(fileType)) & 0xff;
+  const sidHash = createHash("sha1").update(String(sid), "utf8").digest();
+  return `${serverKey.toString("base64url")}_${sidHash.toString("base64url")}`;
 }

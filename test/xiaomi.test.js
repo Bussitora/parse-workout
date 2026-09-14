@@ -8,29 +8,42 @@ import { XiaomiFitnessClient } from "../src/xiaomi.js";
 const fixturePath = fileURLToPath(new URL("./fixtures/sport-records.json", import.meta.url));
 const ssecurity = Buffer.from("0123456789abcdef0123456789abcdef").toString("base64");
 
-test("login and sport record fetch against a mocked Xiaomi API", async () => {
+test("password login and sport record fetch against a mocked Xiaomi API", async () => {
   const fixture = JSON.parse(await readFile(fixturePath, "utf8"));
   const client = new XiaomiFitnessClient({
-    userId: "123",
-    passToken: "secret-token",
+    username: "user@example.com",
+    password: "secret",
     region: "ru",
     timeZone: "Europe/Moscow",
     fetchImpl: async (url, init = {}) => {
       const target = String(url);
+      if (target.includes("/pass/serviceLoginAuth2")) {
+        return new Response(
+          `&&&START&&&${JSON.stringify({
+            code: 0,
+            userId: "123",
+            cUserId: "abc",
+            passToken: "refresh",
+            ssecurity,
+            nonce: "1",
+            location: "https://account.xiaomi.com/sts",
+          })}`,
+          { status: 200 },
+        );
+      }
       if (target.includes("/pass/serviceLogin")) {
         return new Response(
           `&&&START&&&${JSON.stringify({
-            userId: "123",
-            passToken: "secret-token",
-            ssecurity,
-            location: "https://account.xiaomi.com/sts",
+            _sign: "sign",
+            qs: "?sid=miothealth",
+            callback: "https://sts-hlth.io.mi.com/healthapp/sts",
           })}`,
           { status: 200 },
         );
       }
       if (target.includes("/sts")) {
         return new Response("ok", {
-          status: 302,
+          status: 200,
           headers: { "set-cookie": "serviceToken=session-cookie; Path=/" },
         });
       }

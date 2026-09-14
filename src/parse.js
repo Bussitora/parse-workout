@@ -119,6 +119,12 @@ export function parseWorkoutRecord(record, { timeZone = "UTC" } = {}) {
       avg: asNumber(payload.avg_pace),
       max: asNumber(payload.max_pace),
     },
+    protoType: asInt(payload.proto_type),
+    timezoneOffset: asInt(payload.timezone),
+    packedLatitude: typeof payload.latitude === "string" ? payload.latitude : null,
+    packedLongitude: typeof payload.longitude === "string" ? payload.longitude : null,
+    packedAltitude: typeof payload.altitude === "string" ? payload.altitude : null,
+    recordTime: asInt(record?.time) ?? startTs,
     deviceId,
     metrics,
   };

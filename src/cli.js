@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadExistingWorkouts, writeWorkouts } from "./write.js";
-import { mergeWorkouts, parseSportRecords } from "./parse.js";
+import { renderGpx, gpxFileName } from "./gpx.js";
+import { parseSportRecords } from "./parse.js";
+import { writeGpxFiles } from "./write.js";
 import { XiaomiFitnessClient } from "./xiaomi.js";
 
 const rootDir = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
@@ -56,39 +57,44 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
   const startDate = argValue(argv, "--start-date", addDays(endDate, -Math.max(1, lookbackDays)));
 
   const client = new XiaomiFitnessClient({
-    userId: envVars.XIAOMI_USER_ID,
-    passToken: envVars.XIAOMI_PASS_TOKEN,
+    username: envVars.XIAOMI_USERNAME,
+    password: envVars.XIAOMI_PASSWORD,
     region: preferredRegion,
     timeZone,
+    deviceId: envVars.XIAOMI_DEVICE_ID,
   });
 
   await client.login();
   const region = await client.discoverRegion(preferredRegion);
   const records = await client.fetchSportRecords({ startDate, endDate, region });
-  const incoming = parseSportRecords(records, { timeZone });
-  const existing = await loadExistingWorkouts(outDir);
-  const workouts = mergeWorkouts(existing, incoming);
-  const document = await writeWorkouts(outDir, workouts, {
-    syncedAt: new Date().toISOString(),
-    region,
-    timeZone,
-  });
+  const workouts = parseSportRecords(records, { timeZone });
 
-  console.log(
-    JSON.stringify(
-      {
-        region,
-        startDate,
-        endDate,
-        fetched: incoming.length,
-        total: document.count,
-        outDir,
-      },
-      null,
-      2,
-    ),
-  );
-  return document;
+  const files = [];
+  let skipped = 0;
+  for (const workout of workouts) {
+    const points = await client.fetchTrackPoints(workout);
+    if (!points.length) {
+      skipped += 1;
+      continue;
+    }
+    files.push({
+      name: gpxFileName(workout),
+      xml: renderGpx(workout, points),
+    });
+  }
+
+  await writeGpxFiles(outDir, files);
+  const summary = {
+    region,
+    startDate,
+    endDate,
+    fetched: workouts.length,
+    written: files.length,
+    skippedWithoutGps: skipped,
+    outDir,
+  };
+  console.log(JSON.stringify(summary, null, 2));
+  return summary;
 }
 
 if (process.argv[1] && path.basename(process.argv[1]) === "cli.js") {
