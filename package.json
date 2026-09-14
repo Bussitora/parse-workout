@@ -1,0 +1,14 @@
+{
+  "name": "parse-workout",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fetch and parse workouts from Xiaomi Fitness cloud",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "sync": "node src/cli.js",
+    "test": "node --test"
+  }
+}

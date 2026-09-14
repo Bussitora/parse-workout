@@ -1,0 +1,15 @@
+{
+  "sport_records": [
+    {
+      "sid": "device-1",
+      "category": "running",
+      "key": "outdoor_running",
+      "time": 1743501600,
+      "zone_offset": 10800,
+      "zone_name": "Europe/Moscow",
+      "value": "{\"start_time\":1743501600,\"end_time\":1743505200,\"duration\":3600,\"distance\":10000,\"calories\":650,\"steps\":11200,\"avg_hrm\":152,\"max_hrm\":181,\"avg_pace\":360,\"max_pace\":285,\"avg_speed\":2.78,\"max_speed\":5.2,\"avg_cadence\":174,\"max_cadence\":192,\"min_hrm\":88,\"train_effect\":3.8}"
+    }
+  ],
+  "has_more": false,
+  "next_key": ""
+}
