@@ -3,6 +3,7 @@ node_modules/
 .env.*
 !.env.example
 out/
+tmp-set-secrets.mjs
 *.log
 .DS_Store
 Thumbs.db
