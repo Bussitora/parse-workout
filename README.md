@@ -29,7 +29,7 @@ node src/cli.js --out ./out
 | `XIAOMI_PASSWORD` | пароль Xiaomi |
 | `WORKOUT_TOKEN` | fine-grained PAT с Contents: Read and write на репозиторий `workout` |
 | `XIAOMI_REGION` | необязательно, по умолчанию `de` |
-| `XIAOMI_TIMEZONE` | необязательно, по умолчанию `Europe/Berlin` |
+| `XIAOMI_TIMEZONE` | необязательно, по умолчанию `Asia/Yekaterinburg` |
 | `WORKOUT_REPO` | необязательно, по умолчанию `<github-user>/workout` |
 
 Пароль нельзя коммитить в git.

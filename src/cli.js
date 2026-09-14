@@ -49,7 +49,7 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
   await loadDotEnv(envVars);
 
   const outDir = path.resolve(argValue(argv, "--out", envVars.OUTPUT_DIR || "out"));
-  const timeZone = argValue(argv, "--timezone", envVars.XIAOMI_TIMEZONE || "Europe/Berlin");
+  const timeZone = argValue(argv, "--timezone", envVars.XIAOMI_TIMEZONE || "Asia/Yekaterinburg");
   const preferredRegion = argValue(argv, "--region", envVars.XIAOMI_REGION || "de");
   const lookbackDays = Number(argValue(argv, "--lookback-days", envVars.LOOKBACK_DAYS || "730"));
   const today = new Date().toISOString().slice(0, 10);
