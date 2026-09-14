@@ -10,6 +10,7 @@ import {
   buildFdsSuffix,
 } from "./crypto.js";
 import { parseGpsRecord, pointsFromDetailPayload, pointsFromPackedCoordinates } from "./gps.js";
+import { mergeSensorSamples, parseSportSamples } from "./sport.js";
 
 const LOGIN_PREFIX = "&&&START&&&";
 const KNOWN_REGIONS = ["ru", "cn", "de", "i2", "sg", "us"];
@@ -17,6 +18,7 @@ const ACCOUNT_BASE = "https://account.xiaomi.com";
 const LOGIN_URL = `${ACCOUNT_BASE}/pass/serviceLogin?sid=miothealth&_json=true`;
 const LOGIN_AUTH_URL = `${ACCOUNT_BASE}/pass/serviceLoginAuth2`;
 const USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 13) APP/mi.health parse-workout/1.0";
+const FDS_SPORT_FILE_TYPE = 0;
 const FDS_GPS_FILE_TYPE = 2;
 
 export class XiaomiError extends Error {}
@@ -460,14 +462,13 @@ export class XiaomiFitnessClient {
       startTime: Math.floor(Date.parse(workout.start) / 1000) || workout.recordTime,
     });
     const fdsPoints = await this.fetchFdsGpsPoints(workout);
-    if (fdsPoints.length) {
-      return fdsPoints;
+    const detailPoints = fdsPoints.length ? [] : await this.fetchDetailTrackPoints(workout);
+    const points = fdsPoints.length ? fdsPoints : detailPoints.length ? detailPoints : packed;
+    if (!points.length) {
+      return [];
     }
-    const detailPoints = await this.fetchDetailTrackPoints(workout);
-    if (detailPoints.length) {
-      return detailPoints;
-    }
-    return packed;
+    const samples = await this.fetchFdsSportSamples(workout);
+    return mergeSensorSamples(points, samples);
   }
 
   async fetchDetailTrackPoints(workout) {
@@ -508,8 +509,18 @@ export class XiaomiFitnessClient {
   }
 
   async fetchFdsGpsPoints(workout) {
+    const decrypted = await this.fetchFdsFile(workout, FDS_GPS_FILE_TYPE);
+    return decrypted ? parseGpsRecord(decrypted) : [];
+  }
+
+  async fetchFdsSportSamples(workout) {
+    const decrypted = await this.fetchFdsFile(workout, FDS_SPORT_FILE_TYPE);
+    return decrypted ? parseSportSamples(decrypted, workout.protoType) : [];
+  }
+
+  async fetchFdsFile(workout, fileType) {
     if (!workout.deviceId || workout.protoType == null || workout.timezoneOffset == null || !workout.recordTime) {
-      return [];
+      return null;
     }
     const timestamp = workout.recordTime;
     const suffix = buildFdsSuffix({
@@ -517,7 +528,7 @@ export class XiaomiFitnessClient {
       timestamp,
       timezoneOffset: workout.timezoneOffset,
       sportType: workout.protoType,
-      fileType: FDS_GPS_FILE_TYPE,
+      fileType,
     });
     let downloads = {};
     try {
@@ -530,21 +541,20 @@ export class XiaomiFitnessClient {
         { signingPath: "/service/gen_download_url" },
       );
     } catch {
-      return [];
+      return null;
     }
     const entry = downloads?.[`${suffix}_${timestamp}`];
     if (!entry?.url || !entry?.obj_key) {
-      return [];
+      return null;
     }
     try {
       const response = await this.fetchImpl(entry.url);
       if (!response.ok) {
-        return [];
+        return null;
       }
-      const body = await response.text();
-      return parseGpsRecord(decryptFdsData(body, entry.obj_key));
+      return decryptFdsData(await response.text(), entry.obj_key);
     } catch {
-      return [];
+      return null;
     }
   }
 }

@@ -67,6 +67,7 @@ test("renderGpx writes a track", () => {
   );
   assert.match(xml, /<trkpt lat="55.7000000" lon="37.5000000">/);
   assert.match(xml, /<gpxtpx:hr>150<\/gpxtpx:hr>/);
+  assert.match(xml, /<desc>HR avg 150, max 150, min 150<\/desc>/);
   assert.equal(gpxFileName({ localDate: "2025-04-01", start: "2025-04-01T10:00:00.000Z", activityType: "outdoor_running" }), "2025-04-01_100000_outdoor_running.gpx");
 });
 

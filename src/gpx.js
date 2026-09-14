@@ -29,6 +29,8 @@ export function renderGpx(workout, points) {
 
   const name = escapeXml(workout.activityType || "workout");
   const start = isoUtc(points[0].timestamp);
+  const description = heartRateDescription(workout, points);
+  const metadataDesc = description ? `\n    <desc>${escapeXml(description)}</desc>` : "";
   const trackPoints = points
     .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
     .map((point) => {
@@ -59,7 +61,7 @@ export function renderGpx(workout, points) {
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
-    <name>${name}</name>
+    <name>${name}</name>${metadataDesc}
     <time>${start}</time>
   </metadata>
   <trk>
@@ -71,4 +73,22 @@ ${trackPoints}
   </trk>
 </gpx>
 `;
+}
+
+function heartRateDescription(workout, points) {
+  const fromPoints = points.map((point) => point.heartRate).filter((value) => Number.isFinite(value) && value > 0);
+  const avg = workout?.heartRate?.avg ?? (fromPoints.length ? Math.round(fromPoints.reduce((sum, value) => sum + value, 0) / fromPoints.length) : null);
+  const max = workout?.heartRate?.max ?? (fromPoints.length ? Math.max(...fromPoints) : null);
+  const min = workout?.heartRate?.min ?? (fromPoints.length ? Math.min(...fromPoints) : null);
+  const parts = [];
+  if (avg) {
+    parts.push(`avg ${avg}`);
+  }
+  if (max) {
+    parts.push(`max ${max}`);
+  }
+  if (min) {
+    parts.push(`min ${min}`);
+  }
+  return parts.length ? `HR ${parts.join(", ")}` : "";
 }
