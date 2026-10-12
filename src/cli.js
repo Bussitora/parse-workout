@@ -43,6 +43,8 @@ async function loadDotEnv(envVars) {
       throw error;
     }
   }
+}
+
 function localIsoDate(timeZone, now = new Date()) {
   try {
     return new Intl.DateTimeFormat("en-CA", { timeZone }).format(now);
