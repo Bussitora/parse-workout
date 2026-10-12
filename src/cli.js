@@ -43,6 +43,12 @@ async function loadDotEnv(envVars) {
       throw error;
     }
   }
+function localIsoDate(timeZone, now = new Date()) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone }).format(now);
+  } catch {
+    return now.toISOString().slice(0, 10);
+  }
 }
 
 export async function run(argv = process.argv.slice(2), envVars = process.env) {
@@ -52,9 +58,10 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
   const timeZone = argValue(argv, "--timezone", envVars.XIAOMI_TIMEZONE || "Asia/Yekaterinburg");
   const preferredRegion = argValue(argv, "--region", envVars.XIAOMI_REGION || "de");
   const lookbackDays = Number(argValue(argv, "--lookback-days", envVars.LOOKBACK_DAYS || "730"));
-  const today = new Date().toISOString().slice(0, 10);
-  const endDate = argValue(argv, "--end-date", today);
-  const startDate = argValue(argv, "--start-date", addDays(endDate, -Math.max(1, lookbackDays)));
+  const today = localIsoDate(timeZone);
+  const defaultEndDate = addDays(today, 1);
+  const endDate = argValue(argv, "--end-date", envVars.END_DATE || defaultEndDate);
+  const startDate = argValue(argv, "--start-date", envVars.START_DATE || addDays(today, -Math.max(1, lookbackDays)));
 
   const client = new XiaomiFitnessClient({
     username: envVars.XIAOMI_USERNAME,
@@ -76,11 +83,14 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
   for (const workout of workouts) {
     const points = await client.fetchTrackPoints(workout);
     if (!points.length) {
+      console.log(`Skipped (no GPS points): ${workout.id || workout.key} [${workout.activityType}] start: ${workout.start}`);
       skipped += 1;
       continue;
     }
+    const fileName = gpxFileName(workout);
+    console.log(`Track: ${fileName} (${points.length} points)`);
     files.push({
-      name: gpxFileName(workout),
+      name: fileName,
       xml: renderGpx(workout, points),
     });
   }
