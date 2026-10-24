@@ -58,7 +58,7 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
 
   const outDir = path.resolve(argValue(argv, "--out", envVars.OUTPUT_DIR || "out"));
   const timeZone = argValue(argv, "--timezone", envVars.XIAOMI_TIMEZONE || "Asia/Yekaterinburg");
-  const regionArg = argValue(argv, "--region", envVars.XIAOMI_REGION || "de");
+  const regionArg = argValue(argv, "--region", envVars.XIAOMI_REGION || "de,ru");
   const lookbackDays = Number(argValue(argv, "--lookback-days", envVars.LOOKBACK_DAYS || "730"));
   const today = localIsoDate(timeZone);
   const defaultEndDate = addDays(today, 1);

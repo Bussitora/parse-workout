@@ -52,7 +52,7 @@ jobs:
           XIAOMI_PASSWORD: ${{ secrets.XIAOMI_PASSWORD }}
           XIAOMI_USER_ID: ${{ secrets.XIAOMI_USER_ID }}
           XIAOMI_PASS_TOKEN: ${{ secrets.XIAOMI_PASS_TOKEN }}
-          XIAOMI_REGION: ${{ inputs.region || secrets.XIAOMI_REGION }}
+          XIAOMI_REGION: ${{ inputs.region || 'de,ru' }}
           XIAOMI_TIMEZONE: ${{ secrets.XIAOMI_TIMEZONE }}
           XIAOMI_DEVICE_ID: ${{ secrets.XIAOMI_DEVICE_ID }}
         run: node src/cli.js --out ./out
