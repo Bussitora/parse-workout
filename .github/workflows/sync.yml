@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      region:
+        description: "Xiaomi region to fetch from (e.g. ru, de, de,ru, or all)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -47,7 +52,7 @@ jobs:
           XIAOMI_PASSWORD: ${{ secrets.XIAOMI_PASSWORD }}
           XIAOMI_USER_ID: ${{ secrets.XIAOMI_USER_ID }}
           XIAOMI_PASS_TOKEN: ${{ secrets.XIAOMI_PASS_TOKEN }}
-          XIAOMI_REGION: ${{ secrets.XIAOMI_REGION }}
+          XIAOMI_REGION: ${{ inputs.region || secrets.XIAOMI_REGION }}
           XIAOMI_TIMEZONE: ${{ secrets.XIAOMI_TIMEZONE }}
           XIAOMI_DEVICE_ID: ${{ secrets.XIAOMI_DEVICE_ID }}
         run: node src/cli.js --out ./out

@@ -58,31 +58,66 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
 
   const outDir = path.resolve(argValue(argv, "--out", envVars.OUTPUT_DIR || "out"));
   const timeZone = argValue(argv, "--timezone", envVars.XIAOMI_TIMEZONE || "Asia/Yekaterinburg");
-  const preferredRegion = argValue(argv, "--region", envVars.XIAOMI_REGION || "de");
+  const regionArg = argValue(argv, "--region", envVars.XIAOMI_REGION || "de");
   const lookbackDays = Number(argValue(argv, "--lookback-days", envVars.LOOKBACK_DAYS || "730"));
   const today = localIsoDate(timeZone);
   const defaultEndDate = addDays(today, 1);
   const endDate = argValue(argv, "--end-date", envVars.END_DATE || defaultEndDate);
   const startDate = argValue(argv, "--start-date", envVars.START_DATE || addDays(today, -Math.max(1, lookbackDays)));
 
+  const regionsToQuery = regionArg === "all"
+    ? ["de", "ru", "cn", "sg", "us", "i2"]
+    : regionArg.split(",").map((r) => r.trim().toLowerCase()).filter(Boolean);
+
+  const initialRegion = regionsToQuery[0] || "de";
   const client = new XiaomiFitnessClient({
     username: envVars.XIAOMI_USERNAME,
     password: envVars.XIAOMI_PASSWORD,
     userId: envVars.XIAOMI_USER_ID,
     passToken: envVars.XIAOMI_PASS_TOKEN,
-    region: preferredRegion,
+    region: initialRegion,
     timeZone,
     deviceId: envVars.XIAOMI_DEVICE_ID,
   });
 
   await client.login();
-  const region = await client.discoverRegion(preferredRegion);
-  const records = await client.fetchSportRecords({ startDate, endDate, region });
-  const workouts = parseSportRecords(records, { timeZone });
+
+  const allWorkouts = [];
+  const queriedRegions = [];
+
+  for (const targetRegion of regionsToQuery) {
+    try {
+      console.log(`Checking region: ${targetRegion}...`);
+      const region = await client.discoverRegion(targetRegion);
+      const records = await client.fetchSportRecords({ startDate, endDate, region });
+      const regionWorkouts = parseSportRecords(records, { timeZone });
+      for (const w of regionWorkouts) {
+        w.region = region;
+      }
+      console.log(`Region ${region}: found ${regionWorkouts.length} sport records`);
+      allWorkouts.push(...regionWorkouts);
+      queriedRegions.push(region);
+    } catch (error) {
+      console.log(`Region ${targetRegion} error or unavailable: ${error.message}`);
+    }
+  }
+
+  // Deduplicate workouts across regions
+  const workoutsMap = new Map();
+  for (const w of allWorkouts) {
+    const key = gpxFileName(w);
+    if (!workoutsMap.has(key)) {
+      workoutsMap.set(key, w);
+    }
+  }
+  const workouts = [...workoutsMap.values()].sort((a, b) => String(a.start).localeCompare(String(b.start)));
 
   const files = [];
   let skipped = 0;
   for (const workout of workouts) {
+    if (workout.region) {
+      client.region = workout.region;
+    }
     const points = await client.fetchTrackPoints(workout);
     if (!points.length) {
       console.log(`Skipped (no GPS points): ${workout.id || workout.key} [${workout.activityType}] start: ${workout.start}`);
@@ -99,10 +134,11 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
 
   await writeGpxFiles(outDir, files);
   const summary = {
-    region,
+    regions: queriedRegions,
     startDate,
     endDate,
-    fetched: workouts.length,
+    fetched: allWorkouts.length,
+    unique: workouts.length,
     written: files.length,
     skippedWithoutGps: skipped,
     outDir,
