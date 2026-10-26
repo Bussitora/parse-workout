@@ -79,6 +79,35 @@ function localDateFromUnix(seconds, timeZone, zoneOffset) {
   }
 }
 
+function defaultProtoType(activityType) {
+  const map = {
+    outdoor_running: 1,
+    treadmill: 2,
+    outdoor_cycling: 3,
+    indoor_cycling: 4,
+    walking: 5,
+  };
+  return map[activityType] ?? 1;
+}
+
+function parseTimezoneOffset(value, fallbackZoneOffset) {
+  const num = asNumber(value);
+  if (num !== null) {
+    if (Math.abs(num) > 100) {
+      return Math.round(num / 900);
+    }
+    return Math.round(num);
+  }
+  const fallback = asNumber(fallbackZoneOffset);
+  if (fallback !== null) {
+    if (Math.abs(fallback) > 100) {
+      return Math.round(fallback / 900);
+    }
+    return Math.round(fallback);
+  }
+  return null;
+}
+
 export function parseWorkoutRecord(record, { timeZone = "UTC" } = {}) {
   const payload = asObject(record?.value);
   const startTs = asInt(payload.start_time ?? record?.time);
@@ -119,14 +148,15 @@ export function parseWorkoutRecord(record, { timeZone = "UTC" } = {}) {
       avg: asNumber(payload.avg_pace),
       max: asNumber(payload.max_pace),
     },
-    protoType: asInt(payload.proto_type),
-    timezoneOffset: asInt(payload.timezone),
+    protoType: asInt(payload.proto_type) ?? defaultProtoType(activityType),
+    timezoneOffset: parseTimezoneOffset(payload.timezone ?? payload.zone_offset, record?.zone_offset),
     packedLatitude: typeof payload.latitude === "string" ? payload.latitude : null,
     packedLongitude: typeof payload.longitude === "string" ? payload.longitude : null,
     packedAltitude: typeof payload.altitude === "string" ? payload.altitude : null,
     recordTime: asInt(record?.time) ?? startTs,
     deviceId,
     metrics,
+    rawRecord: record,
   };
 }
 

@@ -121,6 +121,10 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
     const points = await client.fetchTrackPoints(workout);
     if (!points.length) {
       console.log(`Skipped (no GPS points): ${workout.id || workout.key} [${workout.activityType}] start: ${workout.start}`);
+      console.log(`  Details: distance=${workout.distanceM}m, duration=${workout.durationSec}s, steps=${workout.steps}, calories=${workout.caloriesKcal}, HR=${JSON.stringify(workout.heartRate)}, protoType=${workout.protoType}, tz=${workout.timezoneOffset}`);
+      if (workout.rawRecord) {
+        console.log(`  Raw record: ${JSON.stringify(workout.rawRecord)}`);
+      }
       skipped += 1;
       continue;
     }

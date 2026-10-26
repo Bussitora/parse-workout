@@ -520,6 +520,7 @@ export class XiaomiFitnessClient {
 
   async fetchFdsFile(workout, fileType) {
     if (!workout.deviceId || workout.protoType == null || workout.timezoneOffset == null || !workout.recordTime) {
+      console.log(`[FDS] Skip ${workout.id}: missing deviceId (${workout.deviceId}), protoType (${workout.protoType}), timezoneOffset (${workout.timezoneOffset}), or recordTime (${workout.recordTime})`);
       return null;
     }
     const timestamp = workout.recordTime;
@@ -530,30 +531,43 @@ export class XiaomiFitnessClient {
       sportType: workout.protoType,
       fileType,
     });
+    const key = `${suffix}_${timestamp}`;
     let downloads = {};
-    try {
-      downloads = await this.request(
-        "/healthapp/service/gen_download_url",
-        {
-          did: workout.deviceId,
-          items: [{ timestamp, suffix }],
-        },
-        { signingPath: "/service/gen_download_url" },
-      );
-    } catch {
-      return null;
+    const regionsToTry = [this.region, "de", "ru"].filter((v, i, a) => v && a.indexOf(v) === i);
+    let entry = null;
+
+    for (const r of regionsToTry) {
+      try {
+        downloads = await this.request(
+          "/healthapp/service/gen_download_url",
+          {
+            did: workout.deviceId,
+            items: [{ timestamp, suffix }],
+          },
+          { signingPath: "/service/gen_download_url", region: r },
+        );
+        if (downloads?.[key]?.url && downloads?.[key]?.obj_key) {
+          entry = downloads[key];
+          break;
+        }
+      } catch (err) {
+        console.log(`[FDS] gen_download_url error in ${r} for ${workout.id}: ${err.message}`);
+      }
     }
-    const entry = downloads?.[`${suffix}_${timestamp}`];
+
     if (!entry?.url || !entry?.obj_key) {
+      console.log(`[FDS] No download entry for ${workout.id} (key: ${key}). Available keys: ${Object.keys(downloads || {}).join(", ")}`);
       return null;
     }
     try {
       const response = await this.fetchImpl(entry.url);
       if (!response.ok) {
+        console.log(`[FDS] HTTP ${response.status} fetching ${entry.url}`);
         return null;
       }
       return decryptFdsData(await response.text(), entry.obj_key);
-    } catch {
+    } catch (err) {
+      console.log(`[FDS] Decrypt error for ${workout.id}: ${err.message}`);
       return null;
     }
   }
