@@ -1,3 +1,4 @@
+import zlib from "node:zlib";
 import { createHash } from "node:crypto";
 import {
   clientSign,
@@ -510,12 +511,16 @@ export class XiaomiFitnessClient {
 
   async fetchFdsGpsPoints(workout) {
     const decrypted = await this.fetchFdsFile(workout, FDS_GPS_FILE_TYPE);
-    return decrypted ? parseGpsRecord(decrypted) : [];
+    const points = decrypted ? parseGpsRecord(decrypted) : [];
+    console.log(`[FDS GPS] ${workout.id}: ${points.length} points from ${decrypted ? decrypted.length : 0} bytes`);
+    return points;
   }
 
   async fetchFdsSportSamples(workout) {
     const decrypted = await this.fetchFdsFile(workout, FDS_SPORT_FILE_TYPE);
-    return decrypted ? parseSportSamples(decrypted, workout.protoType) : [];
+    const samples = decrypted ? parseSportSamples(decrypted, workout.protoType) : [];
+    console.log(`[FDS Sport] ${workout.id}: ${samples.length} samples from ${decrypted ? decrypted.length : 0} bytes`);
+    return samples;
   }
 
   async fetchFdsFile(workout, fileType) {
@@ -552,16 +557,26 @@ export class XiaomiFitnessClient {
             { signingPath: "/service/gen_download_url", region: r },
           );
           const entry = downloads?.[key];
-          if (entry?.url && entry?.obj_key) {
-            console.log(`[FDS] Found download entry for ${workout.id} (fileType ${fileType}, sportType ${sportType}, region ${r})`);
+          if (entry?.url) {
+            console.log(`[FDS] Found URL for ${workout.id} (fileType ${fileType}, sportType ${sportType}, region ${r})`);
             const response = await this.fetchImpl(entry.url);
             if (!response.ok) {
               console.log(`[FDS] HTTP ${response.status} fetching ${entry.url}`);
               continue;
             }
-            return decryptFdsData(await response.text(), entry.obj_key);
-          } else if (entry) {
-            console.log(`[FDS] Entry for key ${key} has no url/obj_key:`, JSON.stringify(entry));
+            let raw = Buffer.from(await response.arrayBuffer());
+            console.log(`[FDS] Downloaded ${raw.length} bytes for ${workout.id}. Header: ${raw.slice(0, 16).toString("hex")}`);
+            if (entry.obj_key) {
+              raw = decryptFdsData(raw, entry.obj_key);
+            }
+            if (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b) {
+              try {
+                raw = zlib.gunzipSync(raw);
+              } catch (zerr) {
+                console.log(`[FDS] gunzip failed: ${zerr.message}`);
+              }
+            }
+            return raw;
           }
         } catch (err) {
           console.log(`[FDS] gen_download_url error in ${r} for ${workout.id}: ${err.message}`);
