@@ -79,7 +79,7 @@ function localDateFromUnix(seconds, timeZone, zoneOffset) {
   }
 }
 
-function defaultProtoType(activityType) {
+function defaultSportType(activityType) {
   const map = {
     outdoor_running: 1,
     treadmill: 2,
@@ -148,7 +148,8 @@ export function parseWorkoutRecord(record, { timeZone = "UTC" } = {}) {
       avg: asNumber(payload.avg_pace),
       max: asNumber(payload.max_pace),
     },
-    protoType: asInt(payload.proto_type) ?? defaultProtoType(activityType),
+    sportType: asInt(payload.sport_type) ?? defaultSportType(activityType),
+    protoType: asInt(payload.proto_type) ?? (asInt(payload.sport_type) ?? defaultSportType(activityType)),
     timezoneOffset: parseTimezoneOffset(payload.timezone ?? payload.zone_offset, record?.zone_offset),
     packedLatitude: typeof payload.latitude === "string" ? payload.latitude : null,
     packedLongitude: typeof payload.longitude === "string" ? payload.longitude : null,
