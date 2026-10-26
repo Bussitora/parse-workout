@@ -528,47 +528,64 @@ export class XiaomiFitnessClient {
       console.log(`[FDS] Skip ${workout.id}: missing deviceId (${workout.deviceId}), timezoneOffset (${workout.timezoneOffset}), or recordTime (${workout.recordTime})`);
       return null;
     }
-    const timestamp = workout.recordTime;
-    const sportCandidates = [workout.sportType ?? 1];
-    if (workout.protoType != null && workout.protoType !== workout.sportType && workout.protoType <= 15) {
-      sportCandidates.push(workout.protoType);
+
+    const startTs = workout.start ? Math.floor(Date.parse(workout.start) / 1000) : null;
+    const timestamps = [
+      workout.payloadTime,
+      workout.recordTime,
+      startTs,
+      workout.payloadTime != null ? workout.payloadTime - 1 : null,
+      workout.recordTime != null ? workout.recordTime - 1 : null,
+    ].filter((t, i, arr) => t != null && arr.indexOf(t) === i);
+
+    const sportTypes = [
+      workout.protoType,
+      workout.sportType,
+      1,
+    ].filter((s, i, arr) => s != null && arr.indexOf(s) === i);
+
+    const items = [];
+    const itemMap = new Map();
+    for (const timestamp of timestamps) {
+      for (const sportType of sportTypes) {
+        const suffix = buildFdsSuffix({
+          sid: workout.deviceId,
+          timestamp,
+          timezoneOffset: workout.timezoneOffset,
+          sportType,
+          fileType,
+        });
+        const key = `${suffix}_${timestamp}`;
+        if (!itemMap.has(key)) {
+          itemMap.set(key, { timestamp, suffix, sportType });
+          items.push({ timestamp, suffix });
+        }
+      }
     }
 
     const regionsToTry = [this.region, "de", "ru"].filter((v, i, a) => v && a.indexOf(v) === i);
 
-    for (const sportType of sportCandidates) {
-      const suffix = buildFdsSuffix({
-        sid: workout.deviceId,
-        timestamp,
-        timezoneOffset: workout.timezoneOffset,
-        sportType,
-        fileType,
-      });
-      const key = `${suffix}_${timestamp}`;
+    for (const r of regionsToTry) {
+      try {
+        const downloads = await this.request(
+          "/healthapp/service/gen_download_url",
+          {
+            did: workout.deviceId,
+            items,
+          },
+          { signingPath: "/service/gen_download_url", region: r },
+        );
 
-      for (const r of regionsToTry) {
-        try {
-          const downloads = await this.request(
-            "/healthapp/service/gen_download_url",
-            {
-              did: workout.deviceId,
-              items: [{ timestamp, suffix }],
-            },
-            { signingPath: "/service/gen_download_url", region: r },
-          );
+        for (const [key, meta] of itemMap.entries()) {
           const entry = downloads?.[key];
-          if (entry?.url) {
-            console.log(`[FDS] Found URL for ${workout.id} (fileType ${fileType}, sportType ${sportType}, region ${r})`);
+          if (entry?.url && entry?.obj_key) {
+            console.log(`[FDS] Found valid file for ${workout.id} (fileType ${fileType}, key ${key}, region ${r}, timestamp ${meta.timestamp}, sportType ${meta.sportType})`);
             const response = await this.fetchImpl(entry.url);
             if (!response.ok) {
               console.log(`[FDS] HTTP ${response.status} fetching ${entry.url}`);
               continue;
             }
-            let raw = Buffer.from(await response.arrayBuffer());
-            console.log(`[FDS] Downloaded ${raw.length} bytes for ${workout.id}. Header: ${raw.slice(0, 16).toString("hex")}`);
-            if (entry.obj_key) {
-              raw = decryptFdsData(raw, entry.obj_key);
-            }
+            let raw = decryptFdsData(await response.text(), entry.obj_key);
             if (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b) {
               try {
                 raw = zlib.gunzipSync(raw);
@@ -578,9 +595,9 @@ export class XiaomiFitnessClient {
             }
             return raw;
           }
-        } catch (err) {
-          console.log(`[FDS] gen_download_url error in ${r} for ${workout.id}: ${err.message}`);
         }
+      } catch (err) {
+        console.log(`[FDS] gen_download_url error in ${r} for ${workout.id}: ${err.message}`);
       }
     }
     return null;

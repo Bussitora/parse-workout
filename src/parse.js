@@ -155,6 +155,7 @@ export function parseWorkoutRecord(record, { timeZone = "UTC" } = {}) {
     packedLongitude: typeof payload.longitude === "string" ? payload.longitude : null,
     packedAltitude: typeof payload.altitude === "string" ? payload.altitude : null,
     recordTime: asInt(record?.time) ?? startTs,
+    payloadTime: asInt(payload.time),
     deviceId,
     metrics,
     rawRecord: record,
