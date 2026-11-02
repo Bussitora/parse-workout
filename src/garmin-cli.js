@@ -17,6 +17,9 @@ export async function run(argv = process.argv.slice(2), envVars = process.env) {
     return { written: 0, skipped: true };
   }
 
+  if (token) {
+    console.log(`GARMIN_TOKEN fields: ${Object.keys(token).join(", ")}`);
+  }
   const client = new GarminConnectClient({
     username: envVars.GARMIN_USERNAME,
     password: envVars.GARMIN_PASSWORD,

@@ -93,6 +93,21 @@ function csrfToken(html) {
   return token;
 }
 
+// Status, headers and the start of the body, for diagnosing Garmin/Cloudflare rejections.
+async function describeResponse(response) {
+  const headers = [...response.headers.entries()]
+    .filter(([name]) => !["set-cookie", "date"].includes(name))
+    .map(([name, value]) => `  ${name}: ${value}`)
+    .join("\n");
+  let body = "";
+  try {
+    body = (await response.clone().text()).replaceAll(/\s+/g, " ").slice(0, 800);
+  } catch {
+    body = "(unreadable)";
+  }
+  return `Garmin HTTP ${response.status} ${response.url || ""}\n${headers}\n  body: ${body}`;
+}
+
 export function parseGarminToken(value) {
   if (!value) {
     return null;
@@ -244,6 +259,9 @@ export class GarminConnectClient {
         },
         body: new URLSearchParams(body),
       });
+      if (!response.ok) {
+        console.log(await describeResponse(response));
+      }
       if (response.status !== 429 || attempt >= this.retryDelaysMs.length) {
         break;
       }
