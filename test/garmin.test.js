@@ -1,32 +1,106 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  GarminConnectClient,
-  garminFileName,
-  oauth1Header,
-  parseGarminToken,
-  withHeartRateDesc,
-} from "../src/garmin.js";
+import zlib from "node:zlib";
+import { parseFitRecords } from "../src/fit.js";
+import { GarminPersonalApiClient, fitToGpx, garminFileName } from "../src/garmin.js";
+import { extractFirstFile } from "../src/zip.js";
 
-const consumer = { consumer_key: "ck", consumer_secret: "cs" };
+const FIT_EPOCH_OFFSET = 631065600;
 
-test("OAuth1 signature matches the Twitter reference example", () => {
-  const header = oauth1Header({
-    method: "POST",
-    url: "https://api.twitter.com/1.1/statuses/update.json?include_entities=true",
-    consumer: {
-      consumer_key: "xvz1evFS4wEEPTGEFPHBog",
-      consumer_secret: "kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw",
-    },
-    token: {
-      oauth_token: "370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb",
-      oauth_token_secret: "LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE",
-    },
-    body: { status: "Hello Ladies + Gentlemen, a signed OAuth request!" },
-    nonce: "kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg",
-    timestamp: 1318622958,
-  });
-  assert.match(header, /oauth_signature="hCtSmYh%2BiHYCEqBWrE7C7hYmtUk%3D"/);
+// FIT file: a "record" definition (timestamp, lat, lon, enhanced altitude, HR, cadence),
+// two normal data messages and one with a compressed timestamp header.
+function buildFit() {
+  const deg = (value) => Math.round((value * 2 ** 31) / 180);
+  const definition = Buffer.from([
+    0x40, 0, 0, 20, 0, 6,
+    253, 4, 0x86,
+    0, 4, 0x85,
+    1, 4, 0x85,
+    78, 4, 0x86,
+    3, 1, 0x02,
+    4, 1, 0x02,
+  ]);
+  const record = (headerByte, timestamp, lat, lon, altitude, hr, cadence) => {
+    const buffer = Buffer.alloc(19);
+    buffer.writeUInt8(headerByte, 0);
+    buffer.writeUInt32LE(timestamp, 1);
+    buffer.writeInt32LE(lat, 5);
+    buffer.writeInt32LE(lon, 9);
+    buffer.writeUInt32LE(altitude, 13);
+    buffer.writeUInt8(hr, 17);
+    buffer.writeUInt8(cadence, 18);
+    return buffer;
+  };
+  const t0 = Date.parse("2026-11-03T11:40:00Z") / 1000 - FIT_EPOCH_OFFSET;
+  const first = record(0x00, t0, deg(57.8646774), deg(59.9490623), (200 + 500) * 5, 140, 82);
+  const second = record(0x00, t0 + 1, deg(57.8646622), deg(59.9490738), 0xffffffff, 0xff, 83);
+  // Compressed header: local type 0, time offset = (t0 + 3) & 0x1f; the body has no timestamp
+  // field in a real file, but here the definition still includes it, so the size matches.
+  const compressed = record(0x80 | ((t0 + 3) & 0x1f), 0xffffffff, deg(57.86465), deg(59.94912), (201 + 500) * 5, 142, 84);
+  const data = Buffer.concat([definition, first, second, compressed]);
+  const header = Buffer.alloc(12);
+  header.writeUInt8(12, 0);
+  header.writeUInt8(0x20, 1);
+  header.writeUInt16LE(2132, 2);
+  header.writeUInt32LE(data.length, 4);
+  header.write(".FIT", 8, "latin1");
+  return Buffer.concat([header, data, Buffer.alloc(2)]);
+}
+
+// ZIP with one deflated entry, sizes only in the central directory (data descriptor style).
+function buildZip(name, content) {
+  const compressed = zlib.deflateRawSync(content);
+  const fileName = Buffer.from(name);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(0x08, 6);
+  local.writeUInt16LE(8, 8);
+  local.writeUInt16LE(fileName.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(compressed.length, 20);
+  central.writeUInt32LE(content.length, 24);
+  central.writeUInt16LE(fileName.length, 28);
+  central.writeUInt32LE(0, 42);
+  const localPart = Buffer.concat([local, fileName, compressed]);
+  const centralPart = Buffer.concat([central, fileName]);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(centralPart.length, 12);
+  eocd.writeUInt32LE(localPart.length, 16);
+  return Buffer.concat([localPart, centralPart, eocd]);
+}
+
+test("FIT records decode GPS, altitude, HR, cadence and compressed timestamps", () => {
+  const records = parseFitRecords(buildFit());
+  assert.equal(records.length, 3);
+  const start = Date.parse("2026-11-03T11:40:00Z") / 1000;
+  assert.deepEqual(records.map((r) => r.timestamp), [start, start + 1, start + 3]);
+  assert.ok(Math.abs(records[0].latitude - 57.8646774) < 1e-6);
+  assert.ok(Math.abs(records[0].longitude - 59.9490623) < 1e-6);
+  assert.equal(records[0].altitude, 200);
+  assert.equal(records[0].heartRate, 140);
+  assert.equal(records[1].altitude, null);
+  assert.equal(records[1].heartRate, null);
+  assert.equal(records[2].cadence, 84);
+});
+
+test("ZIP reader inflates the FIT entry using central directory sizes", () => {
+  const fit = buildFit();
+  assert.deepEqual(extractFirstFile(buildZip("123_ACTIVITY.fit", fit), /\.fit$/i), fit);
+  assert.throws(() => extractFirstFile(buildZip("notes.txt", fit), /\.fit$/i), /No matching file/);
+});
+
+test("FIT converts to GPX with per-point HR, elevation and steps-per-minute cadence", () => {
+  const xml = fitToGpx(buildFit(), { activityType: { typeKey: "running" }, averageHR: 141.2, maxHR: 150 });
+  assert.match(xml, /<desc>HR avg 141, max 150, min 140<\/desc>/);
+  assert.match(xml, /<type>outdoor_running<\/type>/);
+  assert.match(xml, /<ele>200<\/ele>/);
+  assert.match(xml, /<gpxtpx:hr>140<\/gpxtpx:hr>\s*<gpxtpx:cad>164<\/gpxtpx:cad>/);
+  assert.equal((xml.match(/<trkpt /g) || []).length, 3);
 });
 
 test("file names use local date, UTC time and Xiaomi-compatible activity type", () => {
@@ -44,127 +118,47 @@ test("file names use local date, UTC time and Xiaomi-compatible activity type", 
   );
 });
 
-test("heart rate summary is added to Garmin GPX metadata once", () => {
-  const xml = '<gpx><metadata><time>2026-11-03T05:00:00.000Z</time></metadata></gpx>';
-  const withDesc = withHeartRateDesc(xml, { averageHR: 147.4, maxHR: 163 });
-  assert.match(withDesc, /<metadata>\n    <desc>HR avg 147, max 163<\/desc><time>/);
-  assert.equal(withHeartRateDesc(withDesc, { averageHR: 150 }), withDesc);
-  assert.equal(withHeartRateDesc(xml, {}), xml);
-});
-
-test("GARMIN_TOKEN accepts base64 or raw JSON", () => {
-  const token = { oauth_token: "t", oauth_token_secret: "s" };
-  assert.deepEqual(parseGarminToken(Buffer.from(JSON.stringify(token)).toString("base64")), token);
-  assert.deepEqual(parseGarminToken(JSON.stringify(token)), token);
-  assert.equal(parseGarminToken(""), null);
-  assert.throws(() => parseGarminToken('{"oauth_token":"t"}'), /oauth_token_secret/);
-});
-
-test("password login, token exchange and activity download against a mocked Garmin API", async () => {
-  const calls = [];
-  const client = new GarminConnectClient({
-    username: "runner@example.com",
-    password: "secret",
-    consumer,
+test("API key exchange, activity paging and ZIP download against a mocked Personal API", async () => {
+  const zip = buildZip("1_ACTIVITY.fit", buildFit());
+  const client = new GarminPersonalApiClient({
+    apiKey: " key-1 \n",
+    baseUrl: "https://personal.example/",
     fetchImpl: async (url, init = {}) => {
       const target = String(url);
-      calls.push(`${init.method ?? "GET"} ${target.split("?")[0]}`);
-      if (target.startsWith("https://sso.garmin.com/sso/embed")) {
-        return new Response("", { headers: { "set-cookie": "GARMIN-SSO=1; Path=/" } });
+      if (target === "https://personal.example/personalapitoken-service/personal-api/personal-api-key/token") {
+        assert.equal(init.method, "POST");
+        assert.equal(init.headers.Authorization, "ApiKey key-1");
+        return new Response("jwt-1\n");
       }
-      if (target.startsWith("https://sso.garmin.com/sso/signin") && !init.method) {
-        assert.equal(init.headers.Cookie, "GARMIN-SSO=1");
-        return new Response('<input type="hidden" name="_csrf" value="csrf-1" />');
-      }
-      if (target.startsWith("https://sso.garmin.com/sso/signin")) {
-        const form = new URLSearchParams(init.body);
-        assert.equal(form.get("_csrf"), "csrf-1");
-        assert.equal(form.get("username"), "runner@example.com");
-        return new Response('<title>Success</title><script>var url = "https://sso.garmin.com/sso/embed?ticket=ST-123";</script>');
-      }
-      if (target.includes("/oauth/preauthorized")) {
-        assert.equal(new URL(target).searchParams.get("ticket"), "ST-123");
-        assert.match(init.headers.Authorization, /^OAuth oauth_consumer_key="ck"/);
-        return new Response("oauth_token=tok&oauth_token_secret=sec");
-      }
-      if (target.endsWith("/oauth/exchange/user/2.0")) {
-        assert.match(init.headers.Authorization, /oauth_token="tok"/);
-        return Response.json({ access_token: "access-1" });
-      }
-      assert.equal(init.headers.Authorization, "Bearer access-1");
-      if (target.includes("/activities/search/activities")) {
-        const start = Number(new URL(target).searchParams.get("start"));
-        const page = start === 0
+      assert.equal(init.headers.Authorization, "Bearer jwt-1");
+      if (target.includes("/activitylist-service/activities/search/activities")) {
+        const params = new URL(target).searchParams;
+        assert.equal(params.get("startDate"), "2026-10-15");
+        const page = params.get("start") === "0"
           ? [
               { activityId: 2, startTimeLocal: "2026-11-02 21:00:00" },
-              { activityId: 1, startTimeLocal: "2026-10-01 21:00:00" },
+              { activityId: 1, startTimeLocal: "2026-11-01 21:00:00" },
             ]
-          : [];
+          : [{ activityId: 0, startTimeLocal: "2026-10-01 21:00:00" }];
         return Response.json(page);
       }
-      if (target.includes("/download-service/export/gpx/activity/2")) {
-        return new Response("<gpx/>");
+      if (target.endsWith("/download-service/files/activity/2")) {
+        return new Response(zip);
       }
       throw new Error(`unexpected url ${target}`);
     },
   });
 
   await client.login();
-  assert.deepEqual(client.oauth1, { oauth_token: "tok", oauth_token_secret: "sec" });
   const activities = await client.fetchActivities({ startDate: "2026-10-15", pageSize: 2 });
-  assert.deepEqual(activities.map((a) => a.activityId), [2]);
-  assert.equal(await client.downloadGpx(2), "<gpx/>");
-  assert.ok(calls.includes("POST https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0"));
+  assert.deepEqual(activities.map((a) => a.activityId), [2, 1]);
+  assert.deepEqual(await client.downloadFit(2), buildFit());
 });
 
-test("a saved token skips the password login", async () => {
-  const client = new GarminConnectClient({
-    token: { oauth_token: "tok", oauth_token_secret: "sec" },
-    consumer,
-    fetchImpl: async (url) => {
-      assert.ok(String(url).endsWith("/oauth/exchange/user/2.0"), `unexpected url ${url}`);
-      return Response.json({ access_token: "access-2" });
-    },
+test("rejected API key reports a clear error", async () => {
+  const client = new GarminPersonalApiClient({
+    apiKey: "bad",
+    fetchImpl: async () => new Response("Unauthorized", { status: 401 }),
   });
-  await client.login();
-  assert.equal(client.accessToken, "access-2");
-});
-
-test("token exchange retries on HTTP 429 and then reports rate limiting", async () => {
-  let attempts = 0;
-  const nonces = new Set();
-  const make = (failures) =>
-    new GarminConnectClient({
-      token: { oauth_token: "tok", oauth_token_secret: "sec" },
-      consumer,
-      retryDelaysMs: [0, 0],
-      fetchImpl: async (url, init) => {
-        attempts += 1;
-        nonces.add(init.headers.Authorization.match(/oauth_nonce="([^"]+)"/)[1]);
-        return attempts <= failures ? new Response("", { status: 429 }) : Response.json({ access_token: "ok" });
-      },
-    });
-
-  await make(2).login();
-  assert.equal(attempts, 3);
-  assert.equal(nonces.size, 3);
-
-  attempts = 0;
-  await assert.rejects(make(5).login(), /HTTP 429 \(Garmin rate-limits/);
-  assert.equal(attempts, 3);
-});
-
-test("MFA prompt without a code handler fails with a clear message", async () => {
-  const client = new GarminConnectClient({
-    username: "u",
-    password: "p",
-    consumer,
-    fetchImpl: async (url, init = {}) => {
-      if (String(url).includes("/signin") && init.method === "POST") {
-        return new Response('<title>Enter MFA code for login</title><input name="_csrf" value="c2" />');
-      }
-      return new Response('<input name="_csrf" value="c1" />');
-    },
-  });
-  await assert.rejects(client.login(), /garmin-login\.js/);
+  await assert.rejects(client.login(), /HTTP 401 \(GARMIN_API_KEY is invalid or expired\)/);
 });

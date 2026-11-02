@@ -62,9 +62,7 @@ jobs:
         if: ${{ !cancelled() }}
         continue-on-error: true
         env:
-          GARMIN_TOKEN: ${{ secrets.GARMIN_TOKEN }}
-          GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
-          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          GARMIN_API_KEY: ${{ secrets.GARMIN_API_KEY }}
           XIAOMI_TIMEZONE: ${{ secrets.XIAOMI_TIMEZONE }}
         run: node src/garmin-cli.js --out ./out
 
