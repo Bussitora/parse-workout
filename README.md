@@ -1,6 +1,6 @@
 # parse-workout
 
-Парсер тренировок из облака Xiaomi Fitness. Забирает GPS-треки и кладёт **только GPX** в репозиторий `workout`.
+Парсер тренировок из облака Xiaomi Fitness и Garmin Connect. Забирает GPS-треки и кладёт **только GPX** в репозиторий `workout`.
 
 Логин — email/телефон и пароль Xiaomi, без cookie. Секреты хранятся в этом репозитории: Settings → Secrets and variables → Actions.
 
@@ -35,3 +35,26 @@ node src/cli.js --out ./out
 | `WORKOUT_REPO` | необязательно, по умолчанию `<github-user>/workout` |
 
 Пароль нельзя коммитить в git.
+
+## Garmin Connect
+
+Необязательно: если Garmin-секретов нет, шаг пропускается, а сбой Garmin не мешает публикации файлов Xiaomi.
+
+Garmin часто блокирует вход по паролю с серверов GitHub и может спросить код MFA, поэтому токен получают один раз локально:
+
+```bash
+node src/garmin-login.js
+```
+
+Скрипт спросит email, пароль и при необходимости код MFA (или возьмёт `GARMIN_USERNAME`/`GARMIN_PASSWORD` из `.env`) и напечатает строку — её нужно сохранить в секрет `GARMIN_TOKEN`. Токен живёт около года; когда истечёт, шаг Garmin упадёт с `OAuth2 exchange failed` — просто повторите вход.
+
+| Secret | Зачем |
+| --- | --- |
+| `GARMIN_TOKEN` | OAuth1-токен из `src/garmin-login.js` (рекомендуется) |
+| `GARMIN_USERNAME`, `GARMIN_PASSWORD` | запасной вход по паролю, если токена нет |
+
+Файлы Garmin называются `<дата>_<время UTC>_<тип>_garmin.gpx`, в них пульс, высота и каденс по точкам. Забираются тренировки за последние 60 дней (`GARMIN_LOOKBACK_DAYS`).
+
+Если одну пробежку записали и Garmin, и Xiaomi (старт отличается не больше чем на 3 минуты), остаётся файл Garmin: копия Xiaomi не публикуется, а уже опубликованная удаляется из `workout`.
+
+Вход повторяет схему библиотеки [garth](https://github.com/matin/garth): у Garmin нет официального API для частных лиц, так что после изменений на их стороне вход может перестать работать.

@@ -8,7 +8,7 @@ import { XiaomiFitnessClient } from "./xiaomi.js";
 
 const rootDir = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 
-function argValue(args, name, fallback = "") {
+export function argValue(args, name, fallback = "") {
   const index = args.indexOf(name);
   if (index === -1 || index === args.length - 1) {
     return fallback;
@@ -16,11 +16,11 @@ function argValue(args, name, fallback = "") {
   return args[index + 1];
 }
 
-function addDays(isoDate, days) {
+export function addDays(isoDate, days) {
   return new Date(Date.parse(`${isoDate}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-async function loadDotEnv(envVars) {
+export async function loadDotEnv(envVars) {
   try {
     const text = await readFile(path.join(rootDir, ".env"), "utf8");
     for (const line of text.split(/\r?\n/)) {
@@ -45,7 +45,7 @@ async function loadDotEnv(envVars) {
   }
 }
 
-function localIsoDate(timeZone, now = new Date()) {
+export function localIsoDate(timeZone, now = new Date()) {
   try {
     return new Intl.DateTimeFormat("en-CA", { timeZone }).format(now);
   } catch {

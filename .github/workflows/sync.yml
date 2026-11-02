@@ -57,7 +57,19 @@ jobs:
           XIAOMI_DEVICE_ID: ${{ secrets.XIAOMI_DEVICE_ID }}
         run: node src/cli.js --out ./out
 
+      # Optional: skipped when no Garmin secrets are set; a Garmin failure must not block Xiaomi files.
+      - name: Fetch GPX workouts from Garmin Connect
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GARMIN_TOKEN: ${{ secrets.GARMIN_TOKEN }}
+          GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          XIAOMI_TIMEZONE: ${{ secrets.XIAOMI_TIMEZONE }}
+        run: node src/garmin-cli.js --out ./out
+
       - name: Publish GPX files to workout repository
+        if: ${{ !cancelled() }}
         env:
           WORKOUT_TOKEN: ${{ secrets.WORKOUT_TOKEN }}
           WORKOUT_DEPLOY_KEY: ${{ secrets.WORKOUT_DEPLOY_KEY }}
@@ -76,20 +88,11 @@ jobs:
           else
             git clone --depth 1 "https://x-access-token:${WORKOUT_TOKEN}@github.com/${repo}.git" workout-repo
           fi
-          shopt -s nullglob
-          copied=0
-          for file in out/*.gpx; do
-            cp "$file" "workout-repo/$(basename "$file")"
-            copied=$((copied + 1))
-          done
-          if [ "$copied" -eq 0 ]; then
-            echo "No GPX files to publish"
-            exit 0
-          fi
-          git -C workout-repo add -- '*.gpx'
+          node src/publish.js out workout-repo
+          git -C workout-repo add -A -- '*.gpx'
           if git -C workout-repo diff --cached --quiet; then
             echo "No workout changes"
             exit 0
           fi
-          git -C workout-repo commit -m "Sync Xiaomi Fitness GPX workouts"
+          git -C workout-repo commit -m "Sync Xiaomi Fitness and Garmin GPX workouts"
           git -C workout-repo push
