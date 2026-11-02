@@ -130,6 +130,30 @@ test("a saved token skips the password login", async () => {
   assert.equal(client.accessToken, "access-2");
 });
 
+test("token exchange retries on HTTP 429 and then reports rate limiting", async () => {
+  let attempts = 0;
+  const nonces = new Set();
+  const make = (failures) =>
+    new GarminConnectClient({
+      token: { oauth_token: "tok", oauth_token_secret: "sec" },
+      consumer,
+      retryDelaysMs: [0, 0],
+      fetchImpl: async (url, init) => {
+        attempts += 1;
+        nonces.add(init.headers.Authorization.match(/oauth_nonce="([^"]+)"/)[1]);
+        return attempts <= failures ? new Response("", { status: 429 }) : Response.json({ access_token: "ok" });
+      },
+    });
+
+  await make(2).login();
+  assert.equal(attempts, 3);
+  assert.equal(nonces.size, 3);
+
+  attempts = 0;
+  await assert.rejects(make(5).login(), /HTTP 429 \(Garmin rate-limits/);
+  assert.equal(attempts, 3);
+});
+
 test("MFA prompt without a code handler fails with a clear message", async () => {
   const client = new GarminConnectClient({
     username: "u",

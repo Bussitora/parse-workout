@@ -132,7 +132,8 @@ export function withHeartRateDesc(xml, activity) {
 }
 
 export class GarminConnectClient {
-  constructor({ username, password, token, consumer, fetchImpl = fetch } = {}) {
+  constructor({ username, password, token, consumer, fetchImpl = fetch, retryDelaysMs = [30_000, 90_000] } = {}) {
+    this.retryDelaysMs = retryDelaysMs;
     this.username = username;
     this.password = password;
     this.oauth1 = token ?? null;
@@ -231,17 +232,32 @@ export class GarminConnectClient {
     const consumer = await this.loadConsumer();
     const url = `${CONNECT_API}/oauth-service/oauth/exchange/user/2.0`;
     const body = this.oauth1.mfa_token ? { mfa_token: this.oauth1.mfa_token } : {};
-    const response = await this.fetch(url, {
-      method: "POST",
-      headers: {
-        "User-Agent": OAUTH_USER_AGENT,
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: oauth1Header({ method: "POST", url, consumer, token: this.oauth1, body }),
-      },
-      body: new URLSearchParams(body),
-    });
+    let response;
+    for (let attempt = 0; ; attempt += 1) {
+      // A fresh nonce and timestamp on every attempt.
+      response = await this.fetch(url, {
+        method: "POST",
+        headers: {
+          "User-Agent": OAUTH_USER_AGENT,
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: oauth1Header({ method: "POST", url, consumer, token: this.oauth1, body }),
+        },
+        body: new URLSearchParams(body),
+      });
+      if (response.status !== 429 || attempt >= this.retryDelaysMs.length) {
+        break;
+      }
+      console.log(`Garmin rate-limited the token exchange (HTTP 429), retrying in ${this.retryDelaysMs[attempt] / 1000}s`);
+      await new Promise((resolve) => setTimeout(resolve, this.retryDelaysMs[attempt]));
+    }
+    if (response.status === 429) {
+      throw new GarminError("Garmin OAuth2 exchange failed: HTTP 429 (Garmin rate-limits or blocks this IP)");
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new GarminError(`Garmin OAuth2 exchange failed: HTTP ${response.status} (GARMIN_TOKEN is invalid or expired)`);
+    }
     if (!response.ok) {
-      throw new GarminError(`Garmin OAuth2 exchange failed: HTTP ${response.status} (GARMIN_TOKEN may have expired)`);
+      throw new GarminError(`Garmin OAuth2 exchange failed: HTTP ${response.status}`);
     }
     this.accessToken = (await response.json()).access_token;
   }
